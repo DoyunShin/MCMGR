@@ -1,0 +1,214 @@
+#!/bin/bash
+# mcmgr (source) - Minecraft Server Manager
+
+export MC_VERSION="1.20"
+
+source /etc/mcmgconf
+
+mc() {
+  mc_logo
+  printf "\n"
+  printf "Minecraft Server Manager (mcmgr) v$MCSCRIPT_VERSION\n"
+  printf "Minecraft Server v$MC_VERSION\n"
+  printf "\n"
+
+
+}
+
+mc_logo() {
+  printf "███╗   ███╗ ██████╗███╗   ███╗ ██████╗ ██████╗ \n"
+  printf "████╗ ████║██╔════╝████╗ ████║██╔════╝ ██╔══██╗\n"
+  printf "██╔████╔██║██║     ██╔████╔██║██║  ███╗██████╔╝\n"
+  printf "██║╚██╔╝██║██║     ██║╚██╔╝██║██║   ██║██╔══██╗\n"
+  printf "██║ ╚═╝ ██║╚██████╗██║ ╚═╝ ██║╚██████╔╝██║  ██║\n"
+  printf "╚═╝     ╚═╝ ╚═════╝╚═╝     ╚═╝ ╚═════╝ ╚═╝  ╚═╝\n"
+}
+
+# Server Choicer
+
+mc_show_servers() {
+  screen -ls | grep -oP '(?<=\.)\w+' > /tmp/mc_screen_list
+  ls $MC_WORKPATH/server/ > /tmp/mc_server_list
+
+  printf "\e[32mOnline Servers:\e[0m\n"
+  while read -r line; do
+    if grep -q $line /tmp/mc_server_list; then
+      printf "\e[32m$line\e[0m\n"
+    fi
+  done < /tmp/mc_screen_list
+  printf "\e[31mOffline Servers:\e[0m\n"
+  while read -r line; do
+    if ! grep -q $line /tmp/mc_screen_list; then
+      printf "\e[31m$line\e[0m\n"
+    fi
+  done < /tmp/mc_server_list
+}
+
+mc_choose_servers() {
+  mc_show_servers
+  printf "\n"
+  printf "Choose a server: "
+  read MC_SERVER
+  if [ -z $MC_SERVER ]; then
+    printf "\e[31mNo server selected!\e[0m\n"
+    return
+  else if [ ! -d $MC_WORKPATH/server/$MC_SERVER ]; then
+    printf "\e[31mServer $MC_SERVER not found!\e[0m\n"
+    return
+  fi
+}
+
+# Minecraft Server ONOFF Manager
+
+mc_start_server() {
+  if [ -z $1 ]; then; return; fi
+  if [ ! -d $MC_WORKPATH/server/$1 ]; then; return; fi
+  if [ -z $(screen -ls | grep mc_$1) ]; then; return; fi
+  if [ -f $MC_WORKPATH/server/$1/args.txt ]; then; return; fi
+  
+  screen -dmS bash -c "cd $MC_WORKPATH/server/$1; java -jar $(cat $MC_WORKPATH/server/$1/args.txt) $(ls $MC_WORKPATH/server/$1/paper-*.jar | sed -e 's/.*paper-\(.*\)\.jar/\1/')"
+  printf "\e[32mServer $1 started!\e[0m\n"
+}
+
+mc_stop_server() {
+  if [ -z $1 ]; then return; fi
+  if [ ! -d $MC_WORKPATH/server/$1 ]; then return; fi
+  if screen -ls | grep -oP '(?<=\.)\w+' | grep -xq mc_$1; then
+    screen -S mc_$1 -X stuff "^Mstop^M"
+    for i in {1..20}; do
+      if [ ! -z $(screen -ls | grep mc_$1) ]; then
+        printf "\e[32mServer $1 stopped!\e[0m\n"
+        return
+      sleep 1
+    done
+  screen -S mc_$1 -X quit
+  printf "\e[32mServer $1 stopped!\e[0m\n"
+}
+
+mc_start_velocity() {
+  if [ ! -d $MC_WORKPATH/velocity ]; then; return; fi
+  if [ -z $(screen -ls | grep mc_velocity) ]; then; return; fi
+  
+  screen -dmS bash -c "cd $MC_WORKPATH/server/$1; java -jar $(cat $MC_WORKPATH/server/$1/args.txt) $(ls $MC_WORKPATH/server/$1/paper-*.jar | sed -e 's/.*paper-\(.*\)\.jar/\1/')"
+  printf "\e[32mServer $1 started!\e[0m\n"
+}
+
+mc_stop_velocity() {
+  if [ ! -d $MC_WORKPATH/velocity ]; then return; fi
+  if screen -ls | grep -oP '(?<=\.)\w+' | grep -xq mc_velocity; then
+    screen -S mc_velocity -X stuff "^Mstop^M"
+    for i in {1..20}; do
+      if [ ! -z $(screen -ls | grep mc_velocity) ]; then
+        printf "\e[32mVelocity stopped!\e[0m\n"
+        return
+      sleep 1
+    done
+  screen -S mc_velocity -X quit
+  printf "\e[32mVelocity stopped!\e[0m\n"
+}
+
+
+# UPDATE FUNCTIONS
+
+mc_update_velocity() {
+  curl -L https://api.papermc.io/v2/projects/velocity/versions/3.2.0-SNAPSHOT/builds -o /tmp/velocity.json
+  # VELOCITY_VER = ["builds"][-1]["downloads"]["build"]
+  # VELOCITY_FILE = ["builds"][-1]["downloads"]["application"]["name"]
+  # https://api.papermc.io/v2/projects/velocity/versions/3.2.0-SNAPSHOT/builds/{ver}/downloads/{filename}
+  MC_VELOCITY_VER=$(jq -r '.builds[-1].downloads.build' /tmp/velocity.json)
+  MC_VELOCITY_NAME=$(jq -r '.builds[-1].downloads.application.name' /tmp/velocity.json)
+  rm -f /tmp/velocity.json
+
+  if [ -f $MC_WORKPATH/velocity/$MC_VELOCITY_NAME]; then
+    printf "\e[32mVelocity is already up to date!\e[0m\n"
+    return
+  fi
+  curl -L https://api.papermc.io/v2/projects/velocity/versions/3.2.0-SNAPSHOT/builds/$VELOCITY_VER/downloads/$VELOCITY_FILE -o $WORK_DIR/velocity/$MC_VELOCITY_NAME
+  printf "\e[32mVelocity jar updated to $MC_VELOCITY_VER"
+}
+
+mc_update_paper() {
+  curl -L https://api.papermc.io/v2/projects/paper/version_group/1.20/builds -o /tmp/papermc.json
+  MC_PAPER_VERSION=$(cat /tmp/papermc.json | jq -r '.builds[-1].version')
+  MC_PAPER_BUILD=$(cat /tmp/papermc.json | jq -r '.builds[-1].build')
+  MC_PAPER_NAME=$(cat /tmp/papermc.json | jq -r '.builds[-1].downloads.application.name')
+  rm -f /tmp/papermc.json
+
+  mkdir -p $MC_WORKPATH/paper_original/
+  if [ -f $MC_WORKPATH/paper_original/$MC_PAPER_NAME ]; then
+    printf "\e[32mPaper is up to date!\e[0m\n"
+    return
+  fi
+
+  rm $MC_WORKPATH/paper_original/paper-*.jar
+  
+  curl -L https://papermc.io/api/v2/projects/paper/versions/$MC_PAPER_VERSION/builds/$MC_PAPER_BUILD/downloads/$MC_PAPER_NAME -o $MC_WORKPATH/paper_original/MC_PAPER_NAME
+  printf "\e[32mPaper jar updated to $MC_PAPER_VERSION build $MC_PAPER_VERSION\e[0m\n"
+}
+
+mc_plugins_required() {
+  curl -L $(curl -L https://mcapi.doyun.me/coreprotect) -o $MC_WORKPATH/$1/plugins/
+  curl -L $(curl -L https://mcapi.doyun.me/skript) -o $MC_WORKPATH/$1/plugins/
+  curl -L $(curl -L https://mcapi.doyun.me/luckperms) -o $MC_WORKPATH/$1/plugins/
+}
+
+mc_plugins_optional() {
+  curl -L $(curl -L https://mcapi.doyun.me/worldedit) -o $MC_WORKPATH/$1/plugins/
+  curl -L $(curl -L https://mcapi.doyun.me/worldguard) -o $MC_WORKPATH/$1/plugins/
+  curl -L $(curl -L https://mcapi.doyun.me/images) -o $MC_WORKPATH/$1/plugins/
+}
+
+# BACKUP
+
+mc_backup() {
+  printf "\e[32mStarting backup...\e[0m\n"
+  mkdir -p $MC_WORKPATH/backup/
+  if screen -ls | grep -oP '(?<=\.)\w+' | grep -q mc_$1; then
+    mc_stop_server $1
+    screen -dmS mc_backup_$1 bash -c "cd $MC_WORKPATH/server/$1; tar -cvzf $MC_WORKPATH/backup/$1-$(date +%Y%m%d_%H%M%S).tar.gz .; screen -dmS mc_$1 java -jar $(cat $MC_WORKPATH/server/$1/args.txt) $(ls $MC_WORKPATH/server/$1/paper-*.jar | sed -e 's/.*paper-\(.*\)\.jar/\1/')"
+  else
+    screen -dmS mc_backup_$1 bash -c "cd $MC_WORKPATH/server/$1; tar -cvzf $MC_WORKPATH/backup/$1-$(date +%Y%m%d_%H%M%S).tar.gz ."
+  fi
+}
+
+mc_backup_screen() {
+  source /usr/local/bin/mcmgr.sh
+  printf "\e[32mStarting backup...\e[0m\n"
+
+  mkdir -p $MC_WORKPATH/backup/server/
+  cd $MC_WORKPATH/server/$1
+  
+  if screen -ls | grep -oP '(?<=\.)\w+' | grep -q mc_$1; then
+    mc_stop_server $1
+    tar -cvzf $MC_WORKPATH/backup/server/$1-$(date +%Y%m%d_%H%M%S).tar.gz .
+    mc_start_server $1
+  else
+    tar -cvzf $MC_WORKPATH/backup/server/$1-$(date +%Y%m%d_%H%M%S).tar.gz .
+  fi
+}
+
+mc_backup_all() {
+  printf "\e[32mStarting ALL backup...\e[0m\n"
+  screen -dmS mc_backup bash -c \
+  "source /usr/local/bin/mcmgr.sh;\
+  for i in $(ls $MC_WORKPATH/server); do \
+    mkdir -p $MC_WORKPATH/backup/$i; \
+    if screen -ls | grep -oP '(?<=\.)\w+' | grep -q mc_$i; then \
+      mc_stop_server $i; \
+      screen -dmS mc_backup_$i bash -c \"cd $MC_WORKPATH/server/$i; tar -cvzf $MC_WORKPATH/backup/server/$i-$(date +%Y%m%d_%H%M%S).tar.gz .; screen -dmS mc_$i java -jar $(cat $MC_WORKPATH/server/$i/args.txt) $(ls $MC_WORKPATH/server/$i/paper-*.jar | sed -e 's/.*paper-\(.*\)\.jar/\1/')\"; \
+    else \
+      screen -dmS mc_backup_$i bash -c \"cd $MC_WORKPATH/server/$i; tar -cvzf $MC_WORKPATH/backup/server/$i-$(date +%Y%m%d_%H%M%S).tar.gz .\"; \
+    fi; \
+  done"
+
+}
+
+mc_backup_velocity() {
+  printf "\e[32mPlease wait while backup...\e[0m\n"
+  mkdir -p $MC_WORKPATH/backup/velocity/
+  cd $MC_WORKPATH/velocity
+  tar -cvzf $MC_WORKPATH/backup/velocity/velocity-$(date +%Y%m%d_%H%M%S).tar.gz .
+
+}
+
+

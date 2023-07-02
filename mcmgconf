@@ -1,0 +1,10 @@
+#!/bin/bash
+# Config as SHELL
+CONFVER="1.0"
+
+MC_VER="1.20"
+
+MC_WORKPATH="/opt/minecraft"
+MC_VELOCITYPATH="$WORKPATH/velocity"
+
+
